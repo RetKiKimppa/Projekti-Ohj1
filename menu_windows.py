@@ -1,8 +1,8 @@
 ﻿import curses
-import os
 from enum import Enum, auto
 from prompt_toolkit.completion import Completer, Completion
-from prompt_utils import safe_prompt
+
+from game import MultipleChoiceQuestion
 from menu_drawer import Menu, MenuElement, TextElement, MenuOption, Alignment, MenuOptionConfig, draw_menu, \
     HorizontalMenu, BoxedElement, InputHandler
 
@@ -116,11 +116,49 @@ class MainView(Menu):
             return result
 
 
-main_view = MainView()
-result = draw_menu(main_view)
-if isinstance(result, MainViewResult) and result == MainViewResult.TAKEOFF:
-    # os.system("cls" if os.name == "nt" else "clear") # Clear console
-    completer = AnyCompleter(country_names)
-    print("Game Started")
-    selected_country = safe_prompt("Select Country: ", completer=completer)
-    print(selected_country)
+class MultipleChoiceWindow(Menu):
+    def __init__(self, mc_question: MultipleChoiceQuestion) -> None:
+        option_config = MenuOptionConfig(
+            width=20,
+        )
+        self.options = mc_question.options
+        self.correct_answer = next((opt for opt in mc_question.options if opt.is_correct), None)
+
+        self.question_display = TextElement(mc_question.question, width=60, alignment=Alignment.CENTER)
+        self.options_menu = HorizontalMenu([BoxedElement(MenuOption(opt.name, opt.name, option_config)) for opt in mc_question.options], start_y=4)
+        elements: list[MenuElement] = [
+            self.question_display,
+        ]
+        elements.extend(self.options_menu.menu_elements)
+        super().__init__(elements)
+
+    def get_width(self) -> int:
+        return self.options_menu.get_width()
+
+    def get_height(self) -> int:
+        return self.options_menu.get_height() + 4
+
+    def on_draw(self, window: curses.window) -> None:
+        x = 2
+        y = 2
+
+        self.question_display.draw(window, x, y)
+        self.options_menu.on_draw(window)
+
+    def on_get_input(self, key: int, window: curses.window) -> bool | None:
+        result = self.options_menu.on_get_input(key, window)
+        if result is not None and result == self.correct_answer.name:
+            window.clear()
+            window.addstr(2, 2, "Correct!")
+            window.addstr(4, 2, "Press any key to continue...")
+            window.refresh()
+            window.getch()
+            return True
+        elif result is not None:
+            window.clear()
+            window.addstr(2, 2, f"Wrong! The correct answer was: {self.correct_answer.name if self.correct_answer else 'N/A'}")
+            window.addstr(4, 2, "Press any key to continue...")
+            window.refresh()
+            window.getch()
+            return False
+        return None

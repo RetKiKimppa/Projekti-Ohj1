@@ -84,7 +84,7 @@ class BoxedElement(MenuElement):
         self.vertical_padding = vertical_padding
 
     def get_height(self) -> int:
-        return self.element.get_height() + 1 + self.vertical_padding * 2
+        return self.element.get_height() + 2 + self.vertical_padding * 2
 
     def get_width(self) -> int:
         return self.element.get_width() - 1 + self.horizontal_padding * 2
@@ -93,7 +93,7 @@ class BoxedElement(MenuElement):
         horizontal_pad = self.horizontal_padding
         vertical_pad = self.vertical_padding
         self.element.draw(window, x + 1 + horizontal_pad, y + 1 + vertical_pad, highlighted)
-        draw_rectangle(window, x, y, self.get_width(), self.get_height())
+        draw_rectangle(window, x, y, self.get_width(), self.get_height() - 1)
 
     def on_select(self, window: curses.window) -> Any | None:
         return self.element.on_select(window)
@@ -257,7 +257,6 @@ class Menu(ABC):
             self.selectable_elements.append(element)
 
     def read_input(self, window: curses.window, key: int | None = None) -> Any | None:
-        """Return True to exit menu, False to continue"""
         if key is None:
             key = window.getch()
 
