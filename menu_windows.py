@@ -1,8 +1,7 @@
 ﻿import curses
 from enum import Enum, auto
 from prompt_toolkit.completion import Completer, Completion
-
-from game import MultipleChoiceQuestion
+from data import OpenQuestion, MultipleChoiceQuestion, ChallengeResult
 from menu_drawer import Menu, MenuElement, TextElement, MenuOption, Alignment, MenuOptionConfig, draw_menu, \
     HorizontalMenu, BoxedElement, InputHandler
 
@@ -38,7 +37,6 @@ class MainView(Menu):
         option_config = MenuOptionConfig(
             width=20,
         )
-
 
         start_button = MenuOption("Takeoff", MainViewResult.TAKEOFF, option_config)
         inventory_button = MenuOption("Inventory", None, option_config)
