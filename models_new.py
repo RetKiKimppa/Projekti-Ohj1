@@ -53,13 +53,12 @@ class DatabaseConnection:
 
 class Player:
     def __init__(self, db: DatabaseConnection):
-        self.db = db
-        self.id = None
-        self.name = None
-        self.current_airport_id = None
-        self.battery_level = Config.DEFAULT_BATTERY
-        self.difficulty_level = 'easy'
-        self.total_score = 0
+        self.db: DatabaseConnection = db
+        self.id: int | None = None
+        self.name: str = ""
+        self.current_airport_id: int | None = None
+        self.battery_level: int = Config.DEFAULT_BATTERY
+        self.difficulty_level: Difficulty = Difficulty.EASY
 
     def create_or_get_player(self, name: str) -> bool:
         query = "SELECT * FROM player WHERE name = %s"
@@ -72,7 +71,6 @@ class Player:
             self.current_airport_id = player_data['current_airport_id']
             self.battery_level = player_data['battery_level']
             self.difficulty_level = player_data['difficulty_level']
-            self.total_score = player_data['total_score']
             return True
         else:
             query = """INSERT INTO player (name, battery_level, difficulty_level)
@@ -81,16 +79,20 @@ class Player:
                 return self.create_or_get_player(name)
         return False
 
-    def update_battery(self, amount: int):
+    def add_battery(self, amount: int):
         self.battery_level = max(0, min(100, self.battery_level + amount))
         query = "UPDATE player SET battery_level = %s WHERE id = %s"
         self.db.execute_update(query, (self.battery_level, self.id))
 
-    def set_difficulty(self, difficulty: str):
-        if difficulty in Config.DIFFICULTY_LEVELS:
-            self.difficulty_level = difficulty
-            query = "UPDATE player SET difficulty_level = %s WHERE id = %s"
-            self.db.execute_update(query, (difficulty, self.id))
+    def set_battery(self, amount: int):
+        self.battery_level = max(0, min(100, amount))
+        query = "UPDATE player SET battery_level = %s WHERE id = %s"
+        self.db.execute_update(query, (self.battery_level, self.id))
+
+    def set_difficulty(self, difficulty: Difficulty):
+        self.difficulty_level = difficulty
+        query = "UPDATE player SET difficulty_level = %s WHERE id = %s"
+        self.db.execute_update(query, (difficulty.value, self.id))
 
 
 class Country:
@@ -107,7 +109,7 @@ class Country:
         result = self.db.execute_query(query, (name,))
         return CountryDto.create(result[0]) if result else None
 
-    def get_country_by_code(self, code: str) -> Optional[Dict]:
+    def get_country_by_code(self, code: str) -> Optional[CountryDto]:
         query = "SELECT * FROM country WHERE code = %s"
         result = self.db.execute_query(query, (code,))
         return CountryDto.create(result[0]) if result else None
@@ -117,15 +119,22 @@ class Airport:
     def __init__(self, db: DatabaseConnection):
         self.db = db
 
-    def get_airports_by_country(self, country_code: str) -> List[AirportDto]:
+    def get_airports_by_country(self, country: CountryDto) -> List[AirportDto]:
         query = """SELECT a.*, c.name as country_name
                    FROM airport a
                             JOIN country c ON a.country_code = c.code
                    WHERE a.country_code = %s
                    ORDER BY a.is_major_hub DESC, a.name"""
-        results = self.db.execute_query(query, (country_code,))
+        results = self.db.execute_query(query, (country.code,))
         return [AirportDto.create(row) for row in results] if results else []
 
+    def get_airport_by_name(self, name: str) -> Optional[AirportDto]:
+        query = """SELECT a.*, c.name as country_name, c.continent
+                   FROM airport a
+                            JOIN country c ON a.country_code = c.code
+                   WHERE LOWER(a.name) = LOWER(%s)"""
+        result = self.db.execute_query(query, (name,))
+        return AirportDto.create(result[0]) if result else None
 
     def get_airport_by_id(self, airport_id: int) -> Optional[AirportDto]:
         query = """SELECT a.*, c.name as country_name, c.continent
@@ -147,21 +156,23 @@ class Airport:
 
 class GameSession:
     def __init__(self, db: DatabaseConnection):
-        self.db = db
-        self.id = None
-        self.player_id = None
-        self.difficulty_level = 'easy'
-        self.starting_airport_id = None
-        self.boss_airport_id = None
-        self.boss_country_code = None
-        self.current_airport_id = None
-        self.battery_level = Config.DEFAULT_BATTERY
-        self.puzzles_solved = 0
-        self.countries_guessed = []
-        self.status = 'active'
-        self.score = 0
+        self.db: DatabaseConnection = db
+        self.id: int | None = None
+        self.player_id: int | None = None
+        self.difficulty_level: Difficulty = Difficulty.EASY
+        self.starting_airport_id: int | None = None
+        self.boss_airport_id: int | None = None
+        self.boss_country_code: str = None
+        self.current_airport_id: int | None = None
+        self.battery_level: int = Config.DEFAULT_BATTERY
+        self.puzzles_solved: int = 0
+        self.countries_guessed: List[CountryDto] = []
+        self.status: SessionStatus = SessionStatus.ACTIVE
 
-    def create_new_session(self, player_id: int, difficulty: str, boss_airport: AirportDto) -> bool:
+    def get_guessed_country_codes(self) -> List[str]:
+        return [country.code for country in self.countries_guessed] if self.countries_guessed else []
+
+    def create_new_session(self, player_id: int, difficulty: Difficulty, boss_airport: AirportDto) -> bool:
         airport_model = Airport(self.db)
         starting_airport = airport_model.get_random_airport()
 
@@ -176,8 +187,8 @@ class GameSession:
         countries_json = json.dumps([])
 
         if self.db.execute_update(query, (
-                player_id, difficulty, starting_airport.id, boss_airport.id,
-                boss_airport['country_code'], starting_airport.id,
+                player_id, difficulty.value, starting_airport.id, boss_airport.id,
+                boss_airport.country_code, starting_airport.id,
                 Config.DEFAULT_BATTERY, countries_json
         )):
             query = "SELECT * FROM game_session WHERE player_id = %s ORDER BY id DESC LIMIT 1"
@@ -186,33 +197,41 @@ class GameSession:
                 session_data = result[0]
                 self.id = session_data['id']
                 self.player_id = session_data['player_id']
-                self.difficulty_level = session_data['difficulty_level']
+                self.difficulty_level = Difficulty(session_data['difficulty_level'])
                 self.starting_airport_id = session_data['starting_airport_id']
                 self.boss_airport_id = session_data['boss_airport_id']
                 self.boss_country_code = session_data['boss_country_code']
                 self.current_airport_id = session_data['current_airport_id']
                 self.battery_level = session_data['battery_level']
                 self.puzzles_solved = session_data['puzzles_solved']
-                self.countries_guessed = json.loads(session_data['countries_guessed']) if session_data[
-                    'countries_guessed'] else []
-                self.status = session_data['status']
+                countries_json = session_data['countries_guessed']
+                guessed_countries_codes = json.loads(countries_json) if countries_json else []
+                country_model = Country(self.db)
+                self.countries_guessed = [country_model.get_country_by_code(code) for code in guessed_countries_codes if country_model.get_country_by_code(code)]
+                self.status = SessionStatus(session_data['status'])
                 self.score = session_data['score']
                 return True
         return False
 
     def add_guessed_country(self, country: CountryDto):
-        if country.code not in self.countries_guessed:
-            self.countries_guessed.append(country.code)
+        if country not in self.countries_guessed:
+            self.countries_guessed.append(country)
             query = "UPDATE game_session SET countries_guessed = %s WHERE id = %s"
-            self.db.execute_update(query, (json.dumps(self.countries_guessed), self.id))
+            guessed_countries_codes = [c.code for c in self.countries_guessed]
+            self.db.execute_update(query, (json.dumps(guessed_countries_codes), self.id))
 
     def update_current_airport(self, airport: AirportDto):
         self.current_airport_id = airport.id
         query = "UPDATE game_session SET current_airport_id = %s WHERE id = %s"
         self.db.execute_update(query, (airport.id, self.id))
 
-    def update_battery(self, amount: int):
+    def add_battery(self, amount: int):
         self.battery_level = max(0, min(100, self.battery_level + amount))
+        query = "UPDATE game_session SET battery_level = %s WHERE id = %s"
+        self.db.execute_update(query, (self.battery_level, self.id))
+
+    def deduct_battery(self, amount: int):
+        self.battery_level = max(0, min(100, self.battery_level - amount))
         query = "UPDATE game_session SET battery_level = %s WHERE id = %s"
         self.db.execute_update(query, (self.battery_level, self.id))
 
@@ -221,17 +240,15 @@ class GameSession:
         query = "UPDATE game_session SET puzzles_solved = %s WHERE id = %s"
         self.db.execute_update(query, (self.puzzles_solved, self.id))
 
-    def update_status(self, status: GameStatus):
-        status_str = status.value if isinstance(status, GameStatus) else status
-        self.status = status_str
-        completed_at = datetime.now() if status_str in ['won', 'lost', 'abandoned'] else None
-
+    def update_status(self, status: SessionStatus):
+        self.status = status
+        completed_at = datetime.now() if status is SessionStatus.WON or SessionStatus.LOST or SessionStatus.ABANDONED else None
         if completed_at:
             query = "UPDATE game_session SET status = %s, completed_at = %s WHERE id = %s"
-            self.db.execute_update(query, (status_str, completed_at, self.id))
+            self.db.execute_update(query, (status.value, completed_at, self.id))
         else:
             query = "UPDATE game_session SET status = %s WHERE id = %s"
-            self.db.execute_update(query, (status_str, self.id))
+            self.db.execute_update(query, (status.value, self.id))
 
 
 class Challenge:
