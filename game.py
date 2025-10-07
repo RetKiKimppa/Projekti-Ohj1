@@ -110,3 +110,48 @@ def get_airports(country_name:str):
         else:
             #If not return none
             return None
+
+import random
+
+def get_challenge(self, player_difficulty: Difficulty):
+    challenge_type = random.choice(["question_task", "multiple_choice"])
+
+    if challenge_type == "question_task":
+        result = self.execute_query(
+            "SELECT question, correct_answer FROM question_task WHERE difficulty_level = %s ORDER BY RAND() LIMIT 1",
+            (player_difficulty.value,)
+        )
+        if result:
+            row = result[0]
+            return OpenQuestion(
+                question=row["question"],
+                answer=row["correct_answer"]
+            )
+        return None
+
+    else:
+        question_result = self.execute_query(
+            "SELECT id, question FROM multiple_choice_question WHERE difficulty_level = %s ORDER BY RAND() LIMIT 1",
+            (player_difficulty.value,)
+        )
+        if not question_result:
+            return None
+        question = question_result[0]
+
+        answers = self.execute_query(
+            "SELECT answer, is_correct FROM multiple_choice_answer WHERE question_id = %s",
+            (question["id"],)
+        )
+        if not answers:
+            return None
+
+        random.shuffle(answers)
+        options = [
+            MultipleChoiceOption(name=a["answer"], is_correct=a["is_correct"])
+            for a in answers
+        ]
+
+        return MultipleChoiceQuestion(
+            question=question["question"],
+            options=options
+        )
