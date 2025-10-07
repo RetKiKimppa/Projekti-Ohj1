@@ -32,7 +32,7 @@ def start_game(conn, user_name: str, difficulty: str, airport_name: str):
 
             #6 Create a new game_session and save both boss airport and country code
             cursor.execute("""
-                INSERT INTO game_session (
+                    INSERT INTO game_session (
                     player_id, difficulty_level,
                     starting_airport_id, current_airport_id,
                     boss_airport_id, boss_country_code,
