@@ -154,3 +154,18 @@ class CountryDto:
             name=name,
             continent=continent
         )
+
+
+@dataclass
+class GameSaveDto:
+    id: int
+    player_id: int
+    save_name: str
+
+    @classmethod
+    def create(cls, Dict) -> 'GameSaveDto':
+        return cls(
+            id=Dict.get('id', 0),
+            player_id=Dict.get('player_id', 0),
+            save_name=Dict.get('save_name', ''),
+        )

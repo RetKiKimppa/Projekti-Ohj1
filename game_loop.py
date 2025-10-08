@@ -1,13 +1,12 @@
-﻿from game_new import BossFlightGameDriver
+﻿from game import BossFlightGameDriver
 from prompt_utils import safe_prompt
 from prompt_toolkit.completion import Completer, Completion
-from menu_drawer import draw_menu, VerticalMenu
 from menu_windows import MainView, MainViewResult, MultipleChoiceWindow, TextWindow
-from menu_drawer import Menu, MenuElement, TextElement, MenuOption, Alignment, MenuOptionConfig, draw_menu, \
-    HorizontalMenu, BoxedElement, InputHandler
+from menu_drawer import TextElement, MenuOption, Alignment, MenuOptionConfig, draw_menu, \
+    HorizontalMenu, BoxedElement, VerticalMenu
 import os
 from data import *
-
+from config import Config
 
 class AnyCompleter(Completer):
     def __init__(self, options: list[str]):
@@ -27,6 +26,11 @@ def prompt_country(game: BossFlightGameDriver) -> str:
     lowered_country_names = [name.lower() for name in country_names]
     country_completer = AnyCompleter(country_names)
     while True:
+        guessed_countries = game.get_guessed_countries()
+        if guessed_countries:
+            guessed_country_names = [country.name for country in guessed_countries]
+            print("\nCountries you've already visited:")
+            print((", ".join(guessed_country_names) if guessed_country_names else "None"))
         country_name = safe_prompt("\nPlease select a country: ", completer=country_completer).strip()
         if country_name.lower() in lowered_country_names:
             return country_name
@@ -58,8 +62,8 @@ def handle_challenge(game: BossFlightGameDriver, challenge: OpenQuestion | Multi
     match challenge:
         case OpenQuestion(question, answer):
             os.system('cls')
-            print(question)
-            user_answer = input()
+            print(f"\n{question}")
+            user_answer = input("Your answer: ").strip()
             is_correct = user_answer.lower() == answer.lower()
             correct_answer = answer
         case MultipleChoiceQuestion(question, options):
@@ -72,10 +76,36 @@ def handle_challenge(game: BossFlightGameDriver, challenge: OpenQuestion | Multi
     result_window = TextWindow(
         [TextElement(message, width=60, alignment=Alignment.CENTER),
             TextElement(f"Battery {'increased' if battery_change > 0 else 'decreased'} by {abs(battery_change)}%", width=60, alignment=Alignment.CENTER),
-         TextElement("Press any key to continue...", width=60, alignment=Alignment.CENTER)]
+         TextElement("Press any key to continue...", width=60, alignment=Alignment.CENTER, offset_y=1)]
     )
     draw_menu(result_window)
     return ChallengeResult.CORRECT if is_correct else ChallengeResult.INCORRECT
+
+def handle_continue_menu(game: BossFlightGameDriver) -> bool:
+    back_str = "Back"
+    saves = game.get_saves()
+    save_names = [save.save_name for save in saves]
+    save_elements = [BoxedElement(MenuOption(name, name, MenuOptionConfig(width=30))) for name in save_names]
+    elements = [BoxedElement(MenuOption(back_str, back_str))]
+    elements.extend(save_elements)
+    save_menu = HorizontalMenu(elements, start_y=4)
+    save_menu.add_non_selectable([TextElement(f"Pilot: {game.player.name}", alignment=Alignment.LEFT)], -1)
+    selected_save = draw_menu(save_menu)
+    if selected_save == back_str:
+        return False
+    selected_save_obj = next((save for save in saves if save.save_name == selected_save), None)
+    if not selected_save_obj:
+        return False
+    load_result = game.load_save(selected_save_obj)
+    if not load_result.is_success():
+        error_window = TextWindow([
+            TextElement(f"Error loading save: {load_result.error}", alignment=Alignment.CENTER),
+            TextElement("Press any key to continue...", alignment=Alignment.CENTER, offset_y=1)
+        ])
+        draw_menu(error_window)
+        return False
+    return True
+
 
 
 def handle_main_menu(game: BossFlightGameDriver) -> ResultNoValue:
@@ -88,9 +118,9 @@ def handle_main_menu(game: BossFlightGameDriver) -> ResultNoValue:
                 start_result = game.start_new_game(starting_airport, difficulty)
                 return start_result
             case MainMenuResult.CONTINUE:
-                # TODO: Handle saved games thorugh menu
-                if not try_load_game(game):
-                    return ResultNoValue.failure("No saved game found.")
+                loaded_game = handle_continue_menu(game)
+                if not loaded_game:
+                    continue
                 return ResultNoValue.success()
             case MainMenuResult.CHANGE_PILOT:
                 player_setup_result = setup_player(game)
@@ -99,11 +129,6 @@ def handle_main_menu(game: BossFlightGameDriver) -> ResultNoValue:
             case MainMenuResult.QUIT:
                 game.terminate()
                 exit(0)
-
-
-def try_load_game(game: BossFlightGameDriver) -> ResultNoValue:
-    user_name = game.player.name
-    return ResultNoValue.failure("No saved game found.")
 
 
 def display_introduction() -> None:
@@ -167,17 +192,28 @@ def handle_flight(game: BossFlightGameDriver) -> FlightResult:
     return flight_result
 
 
-def after_flight_message(result: FlightResult) -> None:
+def after_flight_message(result: FlightResult, game: BossFlightGameDriver) -> None:
+    difficulty = game.current_session.difficulty_level
+    correct_continent = game.correct_continent
+    correct_country = game.correct_country
     message: str = ""
     match result:
         case FlightResult.INCORRECT:
             return
         case FlightResult.CORRECT_CONTINENT:
-            message = "You're on the right continent!"
+            if not Config.allow_show_correct_continent(difficulty) or correct_continent is not None:
+                return
+            message = "You can feel the presence of the boss - you're in the correct continent!"
         case FlightResult.CORRECT_COUNTRY:
+            if not Config.allow_show_correct_country(difficulty) or correct_country is not None:
+                return
             message = "The boss is near - you've arrived in the correct country!"
         case FlightResult.CORRECT_AIRPORT:
             message = "Congratulations! You've found the boss's secret airport!"
+
+    if message == "":
+        return
+
     result_window = TextWindow([
         TextElement(message, alignment=Alignment.CENTER),
         TextElement("Press any key to continue...", alignment=Alignment.CENTER, offset_y=1)
@@ -185,18 +221,31 @@ def after_flight_message(result: FlightResult) -> None:
     draw_menu(result_window)
 
 
+def show_correct_info(main_view: MainView, difficulty: Difficulty, country: bool, continent: bool):
+    if country and Config.allow_show_correct_country(difficulty):
+        main_view.show_correct_country(True)
+    else:
+        main_view.show_correct_country(False)
+    if continent and Config.allow_show_correct_continent(difficulty):
+        main_view.show_correct_continent(True)
+    else:
+        main_view.show_correct_continent(False)
+
 def game_loop(game: BossFlightGameDriver):
     player_name = game.player.name
     main_view = MainView(player_name)
     main_view.show_direction = True if game.current_session.difficulty_level != Difficulty.HARD else False
+    main_view.set_difficulty(game.current_session.difficulty_level)
 
     while game.current_session.status is SessionStatus.ACTIVE:
         distance = game.get_distance_to_goal_km()
         airport_name = game.current_airport.name
         country_name = game.current_country.name
+        continent_name = game.current_country.continent
         direction = game.get_direction_to_goal()
         main_view.set_airport(airport_name)
         main_view.set_country(country_name)
+        main_view.set_continent(continent_name)
         main_view.set_battery(game.current_session.battery_level)
         main_view.set_direction(direction)
         main_view.set_distance(distance)
@@ -205,19 +254,27 @@ def game_loop(game: BossFlightGameDriver):
         match main_view_result:
             case MainViewResult.TAKEOFF:
                 flight_result = handle_flight(game)
-                after_flight_message(flight_result)
+                after_flight_message(flight_result, game)
                 if flight_result == FlightResult.CORRECT_AIRPORT:
                     game.end_game(GameResult.VICTORY)
                     return
-                elif flight_result == FlightResult.INCORRECT and game.current_session.battery_level <= 0:
-                    lose_display = TextWindow([
-                        TextElement("Game Over!", alignment=Alignment.CENTER),
-                        TextElement("You've run out of battery!", alignment=Alignment.CENTER),
-                        TextElement("Press any key to continue...", alignment=Alignment.CENTER, offset_y=1)
-                    ])
-                    draw_menu(lose_display)
-                    game.end_game(GameResult.DEFEAT)
-                    return
+                elif flight_result == FlightResult.CORRECT_COUNTRY:
+                    game.correct_country = game.current_country.name
+                    show_correct_info(main_view, game.current_session.difficulty_level, True, True)
+                elif flight_result == FlightResult.CORRECT_CONTINENT:
+                    game.correct_continent = game.current_country.continent
+                    show_correct_info(main_view, game.current_session.difficulty_level, country=False, continent=True)
+                elif flight_result == FlightResult.INCORRECT:
+                    show_correct_info(main_view, game.current_session.difficulty_level, country=False, continent=False)
+                    if game.current_session.battery_level <= 0:
+                        lose_display = TextWindow([
+                            TextElement("Game Over!", alignment=Alignment.CENTER),
+                            TextElement("You've run out of battery!", alignment=Alignment.CENTER),
+                            TextElement("Press any key to continue...", alignment=Alignment.CENTER, offset_y=1)
+                        ])
+                        draw_menu(lose_display)
+                        game.end_game(GameResult.DEFEAT)
+                        return
             case MainViewResult.QUIT:
                 game.end_game(GameResult.QUIT)  # TODO: Add handling for game saving
                 return

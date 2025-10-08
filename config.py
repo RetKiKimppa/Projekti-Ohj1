@@ -25,21 +25,33 @@ class Config:
     }
 
     BATTERY_CONSUMPTION_BY_DIFFICULTY = {
-        Difficulty.EASY: int(os.getenv('BATTERY_CONSUMPTION_EASY', '10')),
-        Difficulty.MEDIUM: int(os.getenv('BATTERY_CONSUMPTION_MEDIUM', '15')),
-        Difficulty.HARD: int(os.getenv('BATTERY_CONSUMPTION_HARD', '25')),
+        Difficulty.EASY: int(os.getenv('BATTERY_CONSUMPTION_EASY', '0')),
+        Difficulty.MEDIUM: int(os.getenv('BATTERY_CONSUMPTION_MEDIUM', '0')),
+        Difficulty.HARD: int(os.getenv('BATTERY_CONSUMPTION_HARD', '0')),
     }
 
     BATTERY_REWARD_PER_PUZZLE_BY_DIFFICULTY = {
-        Difficulty.EASY: int(os.getenv('BATTERY_REWARD_EASY', '15')),
+        Difficulty.EASY: int(os.getenv('BATTERY_REWARD_EASY', '20')),
         Difficulty.MEDIUM: int(os.getenv('BATTERY_REWARD_MEDIUM', '20')),
         Difficulty.HARD: int(os.getenv('BATTERY_REWARD_HARD', '25')),
     }
 
     BATTERY_PENALTY_PER_WRONG_ANSWER_BY_DIFFICULTY = {
-        Difficulty.EASY: int(os.getenv('BATTERY_PENALTY_EASY', '0')),
-        Difficulty.MEDIUM: int(os.getenv('BATTERY_PENALTY_MEDIUM', '5')),
-        Difficulty.HARD: int(os.getenv('BATTERY_PENALTY_HARD', '10')),
+        Difficulty.EASY: int(os.getenv('BATTERY_PENALTY_EASY', '15')),
+        Difficulty.MEDIUM: int(os.getenv('BATTERY_PENALTY_MEDIUM', '20')),
+        Difficulty.HARD: int(os.getenv('BATTERY_PENALTY_HARD', '20')),
+    }
+
+    SHOW_CORRECT_CONTINENT_BY_DIFFICULTY = {
+        Difficulty.EASY: os.getenv('SHOW_CORRECT_CONTINENT_EASY', 'true').lower() == 'true',
+        Difficulty.MEDIUM: os.getenv('SHOW_CORRECT_CONTINENT_MEDIUM', 'false').lower() == 'true',
+        Difficulty.HARD: os.getenv('SHOW_CORRECT_CONTINENT_HARD', 'false').lower() == 'true'
+    }
+
+    SHOW_CORRECT_COUNTRY_BY_DIFFICULTY = {
+        Difficulty.EASY: os.getenv('SHOW_CORRECT_COUNTRY_EASY', 'true').lower() == 'true',
+        Difficulty.MEDIUM: os.getenv('SHOW_CORRECT_COUNTRY_MEDIUM', 'true').lower() == 'true',
+        Difficulty.HARD: os.getenv('SHOW_CORRECT_COUNTRY_HARD', 'false').lower() == 'true'
     }
 
     DIFFICULTY_LEVELS = ['easy', 'medium', 'hard']
@@ -59,6 +71,14 @@ class Config:
     @classmethod
     def get_battery_penalty(cls, difficulty: Difficulty) -> int:
         return cls.BATTERY_PENALTY_PER_WRONG_ANSWER_BY_DIFFICULTY.get(difficulty, 0)
+
+    @classmethod
+    def allow_show_correct_continent(cls, difficulty: Difficulty) -> bool:
+        return cls.SHOW_CORRECT_CONTINENT_BY_DIFFICULTY.get(difficulty, False)
+
+    @classmethod
+    def allow_show_correct_country(cls, difficulty: Difficulty) -> bool:
+        return cls.SHOW_CORRECT_COUNTRY_BY_DIFFICULTY.get(difficulty, False)
 
     @classmethod
     def get_db_config(cls):

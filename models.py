@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 import json
 from config import Config
-from models import Airport
 from data import *
 
 
@@ -162,7 +161,7 @@ class GameSession:
         self.difficulty_level: Difficulty = Difficulty.EASY
         self.starting_airport_id: int | None = None
         self.boss_airport_id: int | None = None
-        self.boss_country_code: str = None
+        self.boss_country_code: str | None = None
         self.current_airport_id: int | None = None
         self.battery_level: int = Config.DEFAULT_BATTERY
         self.puzzles_solved: int = 0
@@ -329,7 +328,7 @@ class GameSave:
                        VALUES (%s, %s, %s)"""
             return self.db.execute_update(query, (player_id, save_name, json.dumps(game_data))) > 0
 
-    def get_player_saves(self, player_id: int) -> List[Dict]:
+    def get_player_saves(self, player_id: int) -> List[GameSaveDto]:
         query = """SELECT id, save_name, created_at, updated_at, game_data
                    FROM game_save
                    WHERE player_id = %s
@@ -350,14 +349,15 @@ class GameSave:
                 except json.JSONDecodeError:
                     save['preview'] = {'error': 'Invalid save data'}
 
-        return saves or []
+        return [GameSaveDto.create(s) for s in saves] if saves else []
 
-    def load_game(self, player_id: int, save_name: str) -> Optional[Dict]:
+    def load_game(self, save: GameSaveDto) -> Optional[Dict]:
+        """Load and return the game data from a save"""
         query = """SELECT game_data \
                    FROM game_save
                    WHERE player_id = %s \
                      AND save_name = %s"""
-        result = self.db.execute_query(query, (player_id, save_name))
+        result = self.db.execute_query(query, (save.player_id, save.save_name))
 
         if result:
             try:
@@ -366,9 +366,9 @@ class GameSave:
                 return None
         return None
 
-    def delete_save(self, player_id: int, save_name: str) -> bool:
+    def delete_save(self, save: GameSaveDto) -> bool:
         query = "DELETE FROM game_save WHERE player_id = %s AND save_name = %s"
-        return self.db.execute_update(query, (player_id, save_name)) > 0
+        return self.db.execute_update(query, (save.player_id, save.save_name)) > 0
 
     def restore_session_from_save(self, save_data: Dict, db: DatabaseConnection) -> Optional[GameSession]:
         session = GameSession(db)

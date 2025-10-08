@@ -155,7 +155,10 @@ class MenuOption(MenuElement):
         elif self.alignment == Alignment.RIGHT:
             x += self.get_width() - len(self.dynamic_text) - 2
         flags = get_flags(self.style_flags if not highlighted else self.highlight_flags)
-        window.addstr(y, x, self.dynamic_text, flags)
+        max_y, max_x = window.getmaxyx()
+        if 0 <= y < max_y and 0 <= x < max_x:
+            safe_text = self.dynamic_text[:max_x - x]
+            window.addstr(y, x, safe_text, flags)
 
     def on_select(self, window: curses.window) -> Any | None:
         if callable(self.callback):
@@ -182,12 +185,25 @@ class TextElement(MenuElement):
         if set_width:
             self.set_width(len(self.full_text) + 2)
         elif self.initial_width == -1:
-            self.width = len(text) + 2
+            self.width = len(text)
+
+    def set_prefix(self, prefix: str) -> None:
+        self.prefix = prefix
+        self.full_text = self.prefix + self.text + self.suffix
+        if self.initial_width == -1:
+            self.width = len(self.full_text)
+
+    def set_suffix(self, suffix: str) -> None:
+        self.suffix = suffix
+        self.full_text = self.prefix + self.text + self.suffix
+        if self.initial_width == -1:
+            self.width = len(self.full_text)
 
     def get_width(self) -> int:
         if self.initial_width == -1:
-            return len(self.text)
-        return super().get_width()
+            return len(self.full_text)
+        else:
+            return super().get_width()
 
     def set_width(self, width: int) -> None:
         self.initial_width = width
