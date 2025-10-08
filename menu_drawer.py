@@ -164,7 +164,7 @@ class MenuOption(MenuElement):
 
 
 class TextElement(MenuElement):
-    def __init__(self, text: str, width: int = -1, height: int = 1, prefix: str = "", suffix: str = "", style_flags: OptionStyleFlags = OptionStyleFlags.NONE, alignment: Alignment = Alignment.LEFT):
+    def __init__(self, text: str, width: int = -1, height: int = 1, prefix: str = "", suffix: str = "", style_flags: OptionStyleFlags = OptionStyleFlags.NONE, alignment: Alignment = Alignment.LEFT, offset_x: int = 0, offset_y: int = 0):
         self.prefix = prefix
         self.suffix = suffix
         self.full_text = prefix + text + suffix
@@ -173,11 +173,15 @@ class TextElement(MenuElement):
         self.text = text
         self.style_flags = style_flags
         self.alignment = alignment
+        self.offset_x = offset_x
+        self.offset_y = offset_y
 
-    def set_text(self, text: str) -> None:
+    def set_text(self, text: str, set_width: bool = False) -> None:
         self.text = text
         self.full_text = self.prefix + self.text + self.suffix
-        if self.initial_width == -1:
+        if set_width:
+            self.set_width(len(self.full_text) + 2)
+        elif self.initial_width == -1:
             self.width = len(text) + 2
 
     def get_width(self) -> int:
@@ -185,14 +189,25 @@ class TextElement(MenuElement):
             return len(self.text)
         return super().get_width()
 
+    def set_width(self, width: int) -> None:
+        self.initial_width = width
+        self.width = width
+
     def draw(self, window: curses.window, x: int, y: int, highlighted: bool = False) -> None:
+        x += self.offset_x
+        y += self.offset_y
         display_text = get_styled_text(self.full_text, self.style_flags)
         if self.alignment == Alignment.CENTER:
             x += (self.get_width() - len(display_text)) // 2
         elif self.alignment == Alignment.RIGHT:
             x += self.get_width() - len(display_text)
         flags = get_flags(self.style_flags)
-        window.addstr(y, x, display_text, flags)
+
+        max_y, max_x = window.getmaxyx()
+        if 0 <= y < max_y and 0 <= x < max_x:
+            # Truncate display_text to fit the window width
+            safe_text = display_text[:max_x - x]
+            window.addstr(y, x, safe_text, flags)
 
 
 def get_styled_text(text: str, style_flags: OptionStyleFlags) -> str:
@@ -273,12 +288,14 @@ class Menu(ABC):
         return self.on_get_input(key, window)
 
 
+
 class HorizontalMenu(Menu):
     def __init__(self, menu_elements: list[MenuElement], spacing: int = 2, start_x: int = 2, start_y: int = 2, input_handler: InputHandler | None = None):
         super().__init__(menu_elements, input_handler)
         self.spacing = spacing
         self.start_y = start_y
         self.start_x = start_x
+        self.additional_rows: list[tuple[list[MenuElement], int]] = []
 
     def get_width(self) -> int:
         total_width = sum(el.get_width() for el in self.menu_elements)
@@ -289,12 +306,21 @@ class HorizontalMenu(Menu):
         max_height = max(el.get_height() for el in self.menu_elements) if self.menu_elements else 0
         return max_height + self.start_y
 
+    def add_non_selectable(self, row: list[MenuElement], offset_y: int) -> None:
+        self.additional_rows.append((row, offset_y))
+
     def on_draw(self, window) -> None:
         pos_x = self.start_x
         for idx, element in enumerate(self.menu_elements):
             selected = (element == self.selectable_elements[self.selected_index]) if element.is_selectable else False
             element.draw(window, pos_x, self.start_y, selected)
             pos_x += element.get_width() + self.spacing
+
+        for row in self.additional_rows:
+            pos_x = self.start_x
+            for element in row[0]:
+                element.draw(window, pos_x, self.start_y + row[1])
+                pos_x += element.get_width() + self.spacing
 
     def on_get_input(self, key: int, window: curses.window) -> Any | None:
         if key == curses.KEY_LEFT and self.selected_index > 0:

@@ -1,9 +1,8 @@
-﻿from enum import Enum, auto
-from game_new import BossFlightGameDriver
+﻿from game_new import BossFlightGameDriver
 from prompt_utils import safe_prompt
 from prompt_toolkit.completion import Completer, Completion
 from menu_drawer import draw_menu, VerticalMenu
-from menu_windows import MainView, MainViewResult, MultipleChoiceWindow
+from menu_windows import MainView, MainViewResult, MultipleChoiceWindow, TextWindow
 from menu_drawer import Menu, MenuElement, TextElement, MenuOption, Alignment, MenuOptionConfig, draw_menu, \
     HorizontalMenu, BoxedElement, InputHandler
 import os
@@ -23,12 +22,13 @@ class AnyCompleter(Completer):
 
 
 def prompt_country(game: BossFlightGameDriver) -> str:
-    os.system('cls') # Clear screen for Windows
+    os.system('cls')  # Clear screen for Windows
     country_names = game.get_all_country_names()
+    lowered_country_names = [name.lower() for name in country_names]
     country_completer = AnyCompleter(country_names)
     while True:
-        country_name = safe_prompt("Please select a country: ", completer=country_completer)
-        if country_name in country_names:
+        country_name = safe_prompt("\nPlease select a country: ", completer=country_completer).strip()
+        if country_name.lower() in lowered_country_names:
             return country_name
         else:
             print(f"'{country_name}' is not a valid country. Please try again.")
@@ -52,90 +52,99 @@ def select_airport(game: BossFlightGameDriver) -> str:
             print(f"No airports found in {country_name}. Please select another country.")
 
 
-def handle_challenge(challenge: OpenQuestion | MultipleChoiceQuestion) -> ChallengeResult:
+def handle_challenge(game: BossFlightGameDriver, challenge: OpenQuestion | MultipleChoiceQuestion) -> ChallengeResult:
+    correct_answer: str = ""
+    is_correct: bool = False
     match challenge:
         case OpenQuestion(question, answer):
             os.system('cls')
             print(question)
             user_answer = input()
             is_correct = user_answer.lower() == answer.lower()
-            print(f"{'Correct!' if is_correct else f'Wrong! The correct answer was: {answer}'}")
-            return ChallengeResult.CORRECT if is_correct else ChallengeResult.INCORRECT
+            correct_answer = answer
         case MultipleChoiceQuestion(question, options):
             multiple_choice_menu = MultipleChoiceWindow(challenge)
             is_correct = draw_menu(multiple_choice_menu)
             correct_answer = next((opt.name for opt in options if opt.is_correct), "Unknown")
-            print(f"{'Correct!' if is_correct else f'Wrong! The correct answer was: {correct_answer}'}")
-            return ChallengeResult.CORRECT if is_correct else ChallengeResult.INCORRECT
-    raise ValueError("Unknown challenge type")
-
-class GameResult(Enum):
-    VICTORY = auto()
-    DEFEAT = auto()
-    QUIT = auto()
-
-class GameStartResult(Enum):
-    NEW_GAME = auto()
-    CONTINUE = auto()
-    QUIT = auto()
+    challenge_result: ChallengeResult = ChallengeResult.CORRECT if is_correct else ChallengeResult.INCORRECT
+    battery_change = game.challenge_completed(challenge_result)
+    message = "Correct!" if is_correct else f"Wrong. The correct answer was: {correct_answer}"
+    result_window = TextWindow(
+        [TextElement(message, width=60, alignment=Alignment.CENTER),
+            TextElement(f"Battery {'increased' if battery_change > 0 else 'decreased'} by {abs(battery_change)}%", width=60, alignment=Alignment.CENTER),
+         TextElement("Press any key to continue...", width=60, alignment=Alignment.CENTER)]
+    )
+    draw_menu(result_window)
+    return ChallengeResult.CORRECT if is_correct else ChallengeResult.INCORRECT
 
 
-def configure_game(game: BossFlightGameDriver) -> ResultNoValue:
-    player_setup_result = setup_player(game)
-    if not player_setup_result.is_success():
-        return player_setup_result
-
+def handle_main_menu(game: BossFlightGameDriver) -> ResultNoValue:
     while True:
-        main_menu_result = main_menu(game)
+        main_menu_result = main_menu(game.player.name)
         match main_menu_result:
-            case GameStartResult.NEW_GAME:
+            case MainMenuResult.NEW_GAME:
                 difficulty = select_difficulty()
                 starting_airport = select_airport(game)
                 start_result = game.start_new_game(starting_airport, difficulty)
                 return start_result
-            case GameStartResult.CONTINUE:
+            case MainMenuResult.CONTINUE:
                 # TODO: Handle saved games thorugh menu
                 if not try_load_game(game):
                     return ResultNoValue.failure("No saved game found.")
                 return ResultNoValue.success()
-            case GameStartResult.QUIT:
+            case MainMenuResult.CHANGE_PILOT:
+                player_setup_result = setup_player(game)
+                if not player_setup_result.is_success():
+                    return player_setup_result
+            case MainMenuResult.QUIT:
                 game.terminate()
                 exit(0)
+
 
 def try_load_game(game: BossFlightGameDriver) -> ResultNoValue:
     user_name = game.player.name
     return ResultNoValue.failure("No saved game found.")
 
+
 def display_introduction() -> None:
-    print("Welcome to Boss Flights 🛩️")
-    print("=" * 50)
-    print("Your mission: Find the boss's secret airport by guessing countries!")
-    print("Solve puzzles to gain battery, but be careful - wrong guesses drain power!")
-    print("=" * 50)
-    input("Press Enter to continue...")
+    intro_window = TextWindow([
+        TextElement("Welcome to Boss Flights", alignment=Alignment.CENTER),
+        TextElement("Find the boss's secret airport.", alignment=Alignment.CENTER),
+        TextElement(""),
+        TextElement("Select a country and airport.", alignment=Alignment.CENTER),
+        TextElement("Answer questions for battery.", alignment=Alignment.CENTER),
+        TextElement("Win by finding the secret airport.", alignment=Alignment.CENTER),
+        TextElement("Press any key to continue...", alignment=Alignment.CENTER, offset_y=1)
+    ], autosize_to_highest_width=True)
+    draw_menu(intro_window)
+
 
 def setup_player(game: BossFlightGameDriver) -> ResultNoValue:
+    os.system('cls' if os.name == 'nt' else 'clear')  # Clear screen
     name = input("\nEnter your pilot name: ")
     if not name:
         name = "Anonymous Pilot"
 
     # TODO: Incorporate this as text elements in main menu
     if game.setup_player(name):
-        print(f"\nWelcome back, Captain {name}!")
-        input("Press Enter to continue...")
+        return ResultNoValue.success()
     else:
         return ResultNoValue.failure("Could not create player profile.")
-    return ResultNoValue.success()
 
-def main_menu(game: BossFlightGameDriver) -> GameStartResult:
+
+def main_menu(player_name: str) -> MainMenuResult:
     config = MenuOptionConfig(width=20)
     new_game_menu = HorizontalMenu([
-        BoxedElement(MenuOption("New Game", GameStartResult.NEW_GAME, config)),
-        BoxedElement(MenuOption("Continue", GameStartResult.CONTINUE, config)),
-        BoxedElement(MenuOption("Quit", GameStartResult.QUIT, config)),
-    ])
+        BoxedElement(MenuOption("New Game", MainMenuResult.NEW_GAME, config)),
+        BoxedElement(MenuOption("Continue", MainMenuResult.CONTINUE, config)),
+        BoxedElement(MenuOption("Change Pilot", MainMenuResult.CHANGE_PILOT, config)),
+        BoxedElement(MenuOption("Quit", MainMenuResult.QUIT, config))],
+        start_y=4
+    )
+    new_game_menu.add_non_selectable([TextElement(f"Pilot: {player_name}", alignment=Alignment.CENTER)], -1)
     game_start_result = draw_menu(new_game_menu)
     return game_start_result
+
 
 def select_difficulty() -> Difficulty:
     config = MenuOptionConfig(width=20)
@@ -154,39 +163,68 @@ def handle_flight(game: BossFlightGameDriver) -> FlightResult:
     challenge = game.get_challenge()
     if not challenge:
         raise ValueError("No challenge available")
-    challenge_result = handle_challenge(challenge)
-    battery_change = game.challenge_completed(challenge_result)
-    match challenge_result:
-        case ChallengeResult.CORRECT:
-            print(f"Battery increased by {battery_change}.")
-        case ChallengeResult.INCORRECT:
-            print(f"Battery decreased by {-battery_change}.")
-    input("Press Enter to continue...")
+    challenge_result = handle_challenge(game, challenge)
     return flight_result
 
 
+def after_flight_message(result: FlightResult) -> None:
+    message: str = ""
+    match result:
+        case FlightResult.INCORRECT:
+            return
+        case FlightResult.CORRECT_CONTINENT:
+            message = "You're on the right continent!"
+        case FlightResult.CORRECT_COUNTRY:
+            message = "The boss is near - you've arrived in the correct country!"
+        case FlightResult.CORRECT_AIRPORT:
+            message = "Congratulations! You've found the boss's secret airport!"
+    result_window = TextWindow([
+        TextElement(message, alignment=Alignment.CENTER),
+        TextElement("Press any key to continue...", alignment=Alignment.CENTER, offset_y=1)
+    ])
+    draw_menu(result_window)
+
+
 def game_loop(game: BossFlightGameDriver):
+    player_name = game.player.name
+    main_view = MainView(player_name)
+    main_view.show_direction = True if game.current_session.difficulty_level != Difficulty.HARD else False
+
     while game.current_session.status is SessionStatus.ACTIVE:
-        player_name = game.player.name
-        battery_percentage = game.current_session.battery_level
-        main_view = MainView(player_name)
+        distance = game.get_distance_to_goal_km()
+        airport_name = game.current_airport.name
+        country_name = game.current_country.name
+        direction = game.get_direction_to_goal()
+        main_view.set_airport(airport_name)
+        main_view.set_country(country_name)
+        main_view.set_battery(game.current_session.battery_level)
+        main_view.set_direction(direction)
+        main_view.set_distance(distance)
 
-        while True:
-            distance = game.get_distance_to_goal_km()
-            main_view.set_battery(battery_percentage)
-            main_view.set_distance(distance)
+        main_view_result = draw_menu(main_view)
+        match main_view_result:
+            case MainViewResult.TAKEOFF:
+                flight_result = handle_flight(game)
+                after_flight_message(flight_result)
+                if flight_result == FlightResult.CORRECT_AIRPORT:
+                    game.end_game(GameResult.VICTORY)
+                    return
+                elif flight_result == FlightResult.INCORRECT and game.current_session.battery_level <= 0:
+                    lose_display = TextWindow([
+                        TextElement("Game Over!", alignment=Alignment.CENTER),
+                        TextElement("You've run out of battery!", alignment=Alignment.CENTER),
+                        TextElement("Press any key to continue...", alignment=Alignment.CENTER, offset_y=1)
+                    ])
+                    draw_menu(lose_display)
+                    game.end_game(GameResult.DEFEAT)
+                    return
+            case MainViewResult.QUIT:
+                game.end_game(GameResult.QUIT)  # TODO: Add handling for game saving
+                return
 
-            main_view_result = draw_menu(main_view)
-            match main_view_result:
-                case MainViewResult.TAKEOFF:
-                    flight_result = handle_flight(game)
-                    continue
-                case MainViewResult.QUIT:
-                    game.terminate() # TODO: Add handling for game saving
-                    exit(0)
 
-
-def main():
+def start_loop():
+    os.system('cls' if os.name == 'nt' else 'clear')
     game: BossFlightGameDriver = BossFlightGameDriver()
     init_result = game.initialize()
     if not init_result.is_success():
@@ -195,11 +233,27 @@ def main():
 
     try:
         display_introduction()
-        configure_game(game)
+        player_setup_result = setup_player(game)
+        if not player_setup_result.is_success():
+            print(f"Error: {player_setup_result.error}")
+            return
 
-        game_loop(game)
+        while True:
+            handle_main_menu(game)
+            game_loop(game)
     finally:
         game.terminate()
 
-if __name__ == '__main__':
+
+def main():
+    try:
+        start_loop()
+    except KeyboardInterrupt:
+        print("\n\n✈️  Game stopped!")
+    except Exception as e:
+        print (f"\n Error during execution: {e}")
+        raise e
+
+
+if __name__ == "__main__":
     main()

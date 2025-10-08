@@ -1,4 +1,5 @@
-﻿from data import *
+﻿import airport_util
+from data import *
 from models_new import (DatabaseConnection, Player, Country, Airport,
                     GameSession, Challenge, GameSave)
 from config import Config
@@ -14,6 +15,8 @@ class BossFlightGameDriver:
         self.player: Player | None = None
         self.current_session: GameSession | None = None
         self.boss_airport: AirportDto | None = None
+        self.current_airport: AirportDto | None = None
+        self.current_country: CountryDto | None = None
         self.game_save: GameSave | None = None
 
     def initialize(self) -> ResultNoValue:
@@ -43,6 +46,10 @@ class BossFlightGameDriver:
         starting_airport = airport_model.get_airport_by_name(starting_airport_name)
         if not starting_airport:
             return ResultNoValue.failure(f"Starting airport '{starting_airport_name}' not found.")
+
+        starting_country = Country(self.db).get_country_by_code(starting_airport.country_code)
+        self.current_country = starting_country
+        self.current_airport = airport_model.get_airport_by_name(starting_airport_name)
 
         self.player.set_battery(Config.get_starting_battery(difficulty))
         self.player.set_difficulty(difficulty)
@@ -83,6 +90,12 @@ class BossFlightGameDriver:
     def change_airport(self, airport_name: str) -> FlightResult:
         airport = Airport(self.db).get_airport_by_name(airport_name)
         country = Country(self.db).get_country_by_code(airport.country_code)
+        if not airport or not country or not self.current_session or not self.boss_airport:
+            raise ValueError("Invalid airport or game session state.")
+
+        self.current_country = country
+        self.current_airport = airport
+        self.current_session.deduct_battery(Config.get_battery_consumption(self.current_session.difficulty_level))
         self.current_session.add_guessed_country(country)
         self.current_session.update_current_airport(airport)
         self.auto_save_game()
@@ -109,6 +122,7 @@ class BossFlightGameDriver:
         return None
 
     def challenge_completed(self, challenge_result: ChallengeResult) -> int:
+        """Returns battery change (positive or negative)"""
         match challenge_result:
             case ChallengeResult.CORRECT:
                 self.current_session.increment_puzzles_solved()
@@ -131,17 +145,30 @@ class BossFlightGameDriver:
         if not current_airport:
             return float('inf')
 
-        lat1, lon1 = math.radians(float(current_airport.latitude)), math.radians(float(current_airport.longitude))
-        lat2, lon2 = math.radians(float(goal_airport.latitude)), math.radians(float(goal_airport.longitude))
+        distance = airport_util.calculate_distance_km(current_airport, goal_airport)
+        return distance
 
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
+    def get_direction_to_goal(self) -> airport_util.CompassDirection:
+        """Get direction to boss airport from current airport"""
+        goal_airport = self.boss_airport
+        if not self.current_session or not goal_airport:
+            return airport_util.CompassDirection.N
 
-        a = (math.sin(dlat / 2) ** 2 +
-             math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2)
-        c = 2 * math.asin(math.sqrt(a))
+        direction = airport_util.get_direction(self.current_airport, goal_airport)
+        return direction
 
-        # Earth's radius in kilometers
-        r = 6371
+    def end_game(self, game_result: GameResult):
+        if not self.current_session:
+            return
 
-        return r * c
+        match game_result:
+            case GameResult.VICTORY:
+                session_status = SessionStatus.WON
+            case GameResult.DEFEAT:
+                session_status = SessionStatus.LOST
+            case GameResult.QUIT:
+                session_status = SessionStatus.ABANDONED
+
+        self.current_session.update_status(session_status)
+        if game_result == GameResult.QUIT:
+            self.auto_save_game()
