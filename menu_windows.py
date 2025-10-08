@@ -3,7 +3,7 @@ from enum import Enum, auto
 from prompt_toolkit.completion import Completer, Completion
 
 from airport_util import CompassDirection
-from data import OpenQuestion, MultipleChoiceQuestion, ChallengeResult
+from data import OpenQuestion, MultipleChoiceQuestion, ChallengeResult, Difficulty
 from menu_drawer import Menu, MenuElement, TextElement, MenuOption, Alignment, MenuOptionConfig, draw_menu, \
     HorizontalMenu, BoxedElement, InputHandler
 
@@ -35,11 +35,10 @@ def create_exit_window(start_y: int = 2, start_x: int = 2) -> HorizontalMenu:
 
 
 class MainView(Menu):
-    def __init__(self, user_name: str = "Player", battery_percentage: int = 100, distance_km: float = 0, current_country_name: str = "", current_airport_name: str = "", direction_to_goal: CompassDirection = CompassDirection.N) -> None:
+    def __init__(self, user_name: str = "Player", battery_percentage: int = 100, distance_km: float = 0, current_country_name: str = "", current_airport_name: str = "", direction_to_goal: CompassDirection = CompassDirection.N, difficulty: Difficulty | None = None) -> None:
         option_config = MenuOptionConfig(
             width=20,
         )
-
         self.show_direction = True
 
         start_button = MenuOption("Takeoff", MainViewResult.TAKEOFF, option_config)
@@ -57,6 +56,9 @@ class MainView(Menu):
         battery_prefix = "B "
         battery_suffix = " %"
 
+        self.correct_continent_prefix = "✓ "
+        self.correct_country_prefix = "✓ "
+
         # top row: name (left), distance (center), battery (right)
         self.name_display = TextElement(user_name, prefix="Pilot: ", width=menu_width, alignment=Alignment.LEFT)
         self.direction_display = TextElement(f"{direction_to_goal.value}", width=menu_width, alignment=Alignment.CENTER, offset_y=-1)
@@ -64,8 +66,10 @@ class MainView(Menu):
         self.battery_display = TextElement(f"{battery_percentage}", prefix=battery_prefix, suffix=battery_suffix, width=menu_width, alignment=Alignment.RIGHT)
 
         # bottom 2 rows: country (left), airport (left)
+        self.continent_display = TextElement("N/A", alignment=Alignment.LEFT)
         self.country_display = TextElement(current_country_name, width=menu_width, alignment=Alignment.LEFT)
         self.airport_display = TextElement(current_airport_name, width=menu_width, alignment=Alignment.LEFT)
+        self.difficulty_display = TextElement(difficulty.value if difficulty else "N/A", width=menu_width, alignment=Alignment.RIGHT)
 
         elements: list[MenuElement] = [
             self.distance_display,
@@ -86,11 +90,29 @@ class MainView(Menu):
     def set_battery(self, battery: int) -> None:
         self.battery_display.set_text(f"{battery}")
 
+    def set_continent(self, continent_name: str) -> None:
+        self.continent_display.set_text(continent_name)
+
     def set_country(self, country_name: str) -> None:
         self.country_display.set_text(country_name)
 
     def set_airport(self, airport_name: str) -> None:
         self.airport_display.set_text(airport_name)
+
+    def set_difficulty(self, difficulty: Difficulty) -> None:
+        self.difficulty_display.set_text(difficulty.value.capitalize())
+
+    def show_correct_continent(self, show: bool = True) -> None:
+        if show:
+            self.continent_display.set_prefix(self.correct_continent_prefix)
+        else:
+            self.continent_display.set_prefix("")
+
+    def show_correct_country(self, show: bool = True) -> None:
+        if show:
+            self.country_display.set_prefix(self.correct_country_prefix)
+        else:
+            self.country_display.set_prefix("")
 
     def get_width(self) -> int:
         return self.buttons_menu.get_width()
@@ -107,8 +129,12 @@ class MainView(Menu):
             self.direction_display.draw(window, x, y)
         self.distance_display.draw(window, x, y)
         self.battery_display.draw(window, x, y)
-        self.country_display.draw(window, x, y + 6)
+
+        self.continent_display.draw(window, x, y + 6)
+        self.country_display.draw(window, x + self.continent_display.get_width() + 2, y + 6)
         self.airport_display.draw(window, x, y + 7)
+
+        self.difficulty_display.draw(window, x, y + 6)
 
         if self.show_exit_menu:
             self.exit_menu.on_draw(window)
