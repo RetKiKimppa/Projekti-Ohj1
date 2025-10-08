@@ -1,5 +1,5 @@
 ﻿from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, auto
 from typing import Generic, TypeVar, Optional
 
 T = TypeVar('T')
@@ -41,6 +41,17 @@ class ResultNoValue:
     def failure(cls, error: str) -> 'ResultNoValue':
         return cls(error=error)
 
+class GameResult(Enum):
+    VICTORY = auto()
+    DEFEAT = auto()
+    QUIT = auto()
+
+class MainMenuResult(Enum):
+    NEW_GAME = auto()
+    CONTINUE = auto()
+    CHANGE_PILOT = auto()
+    QUIT = auto()
+
 class SessionStatus(Enum):
     ACTIVE = 'active'
     WON = 'won'
@@ -78,6 +89,7 @@ class MultipleChoiceQuestion:
 class FlightResult(Enum):
     CORRECT_AIRPORT = 'correct_airport'
     CORRECT_COUNTRY = 'correct_country'
+    CORRECT_CONTINENT = 'correct_continent'
     INCORRECT = 'incorrect'
 
 @dataclass
